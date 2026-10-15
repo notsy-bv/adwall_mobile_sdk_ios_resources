@@ -1,6 +1,6 @@
 # Membrana AdWall SDK for iOS
 
-Membrana AdWall is an iOS 14+ SDK that exchanges access to protected publisher content for a
+Membrana AdWall is an iOS 15+ SDK that exchanges access to protected publisher content for a
 rewarded ad impression. A publisher-supplied view defines where protection starts; the wall spans
 the presenting view controller and extends from that edge through its bottom. Localized text and an
 optional logo come from the Membrana settings API, and a gate is never shown unless its rewarded
@@ -22,8 +22,8 @@ inventory is already loaded.
 
 ## Requirements
 
-- iOS 14.0 or later deployment target
-- Xcode 26.2 or newer, required by Google Mobile Ads 13.6
+- iOS 15.0 or later deployment target
+- Xcode 26.2 or newer, required by Google Mobile Ads 13
 - A Membrana App ID, supplied by the Membrana team for your application
 - A Google Mobile Ads application ID, also supplied by the Membrana team, which you declare in your
   app's `Info.plist`
@@ -43,13 +43,13 @@ it independently. No Google Mobile Ads type appears in the Membrana public API.
    https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources
    ```
 
-3. Set **Dependency Rule** to **Up to Next Major Version** starting at `0.1.0`, or pin the
+3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.0`, or pin the
    exact version approved for your integration.
 4. Add the **MembranaAdWallSDK** library product to your application target.
 
 Xcode resolves
 [`swift-package-manager-google-mobile-ads`](https://github.com/googleads/swift-package-manager-google-mobile-ads)
-(13.6.0 or later, below 14.0) transitively. Do not add Google Mobile Ads separately.
+(13.11.0 or later, below 14.0) transitively. Do not add Google Mobile Ads separately.
 
 ### Package.swift
 
@@ -57,7 +57,7 @@ Xcode resolves
 dependencies: [
     .package(
         url: "https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources.git",
-        from: "0.1.0"
+        from: "1.0.0"
     )
 ],
 targets: [
@@ -107,7 +107,8 @@ The host application also owns:
 - Any request settings required by your CMP, mediation partners, or regional policy.
 
 Membrana AdWall does not display consent UI and does not own consent state. Finish your privacy and
-consent flow before starting the SDK.
+consent flow before starting the SDK. If consent changes later, see
+[Consent changes](#consent-changes); for the data the SDK itself sends, see [Privacy](#privacy).
 
 ## Start the SDK
 
@@ -170,8 +171,9 @@ A few consequences worth knowing:
   No cell tracking, reserved wall height, or scroll-delegate integration is needed. To keep a header
   public, place it outside the scrolling container and constrain the container below it.
 - When a protected view sits inside a scroll view, interaction with the covered region is blocked
-  and the containing scroll view is temporarily locked while the wall is installed. Pick a boundary
-  that leaves any intended public preview outside the protected region.
+  and every containing scroll view up to the presenting view, including nested ones, is temporarily
+  locked while the wall is installed. Pick a boundary that leaves any intended public preview
+  outside the protected region.
 
 ### UIKit
 
@@ -328,9 +330,34 @@ outcome.
 | --- | --- |
 | `adWallDidPresent(_:)` | The wall was installed; content is still protected. |
 | `adWallDidUnlockContent(_:)` | Access to the protected view was granted. Terminal. |
-| `adWallDidRejectContent(_:)` | The user left a rewarded flow without earning access. Terminal. |
-| `adWall(_:contentUnavailableWithReason:)` | No wall can be offered. Terminal. |
+| `adWallDidRejectContent(_:)` | The user left a rewarded flow without earning access. Terminal; the wall stays with disabled controls until the screen closes or `gate` is called again for the same view. |
+| `adWall(_:contentUnavailableWithReason:)` | No wall can be offered, or an active wall is being removed because advertising was paused. See [Unavailable reasons](#unavailable-reasons). Terminal. |
 | `adWall(_:didFailWithError:)` | A technical failure not represented by an unavailable reason. Terminal. |
+
+The SDK does not remember unlocks. Your app decides whether access granted by
+`adWallDidUnlockContent(_:)` survives navigation, screen recreation, or an app restart.
+
+### Unavailable reasons
+
+`adWall(_:contentUnavailableWithReason:)` reports an expected condition, not an error. Leave the
+content as it is or show your own fallback experience.
+
+| Reason | Meaning |
+| --- | --- |
+| `.notInitialized` | `start()` has not completed successfully. The request is not replayed after startup. |
+| `.notAllowed` | A frequency cap currently blocks the wall. |
+| `.rewardedAdNotReady` | No fresh rewarded ad is loaded, so the SDK intentionally showed no wall. |
+| `.adServingPaused` | Advertising is turned off with `setDemandEnabled(false)`. Also reported to an active wall just before the SDK removes it; see [Consent changes](#consent-changes). |
+| `.alreadyPresenting` | This instance already has an active wall. |
+| `.invalidHost` | The view is not in the presenting view controller's hierarchy, or cannot host the wall. |
+| `.presentationFailed` | An unexpected rendering or presentation failure prevented the wall. |
+
+Objective-C uses `MBRUnavailableReason`.
+
+For status UI or diagnostics, `adWall.availability` returns a read-only snapshot: `.notInitialized`,
+`.adServingPaused`, `.notAllowed`, `.rewardedAdNotReady`, `.presenting`, or `.ready`. Caps, ad
+freshness, and view attachment can change before the next `gate` call, so that call's callback
+remains authoritative.
 
 ### Errors
 
@@ -351,9 +378,76 @@ and codes are never exposed.
 Compare `error.domain` and `error.code` to identify a case. `error.localizedDescription` carries a
 human-readable explanation suitable for logs.
 
-For an expected outcome, branch on `MembranaAdWallUnavailableReason` from
+For an expected outcome, branch on the [unavailable reason](#unavailable-reasons) from
 `adWall(_:contentUnavailableWithReason:)` instead — that is the surface designed for it. Most
 integrations only log the error callback.
+
+## Consent changes
+
+Membrana AdWall does not read consent state. When your CMP or privacy flow decides that advertising
+must stop, tell the SDK:
+
+```swift
+await adWall.setDemandEnabled(false)
+```
+
+Every active wall first reports `.adServingPaused` to its delegate. The SDK then removes the wall,
+discards loaded ads, cancels its preloads, and starts no further ad requests or presentations; later
+`gate` calls report `.adServingPaused`. The setting applies to every `MembranaAdWall` instance in
+the process, not only the one you call.
+
+> **Cover protected content yourself in the `.adServingPaused` callback.** The SDK removes its own
+> coverage right after reporting it, so anything you have not locked by then becomes visible.
+
+When advertising may resume, first update your CMP and Google Mobile Ads request configuration,
+then re-enable demand through any instance:
+
+```swift
+await adWall.setDemandEnabled(true)
+```
+
+The SDK then preloads one fresh ad per configured format, shared by every started instance.
+
+- `start()` throws while advertising is turned off. If you turn it off while `start()` is still
+  running, that startup fails; re-enabling does not resume it, so call `start()` again.
+- `setDemandEnabled` only tells the SDK whether it may use advertising. It is not a consent signal
+  and is not forwarded to Google Mobile Ads; pass consent to Google Mobile Ads through your CMP as
+  usual.
+
+```objc
+[adWall setDemandEnabled:NO completion:^{
+    // Loaded ads are discarded and SDK ad activity has stopped.
+}];
+```
+
+## Privacy
+
+The SDK makes two kinds of request to Membrana:
+
+- **Settings**, from `mobile-app-sdk.membrana.media` at startup: your Membrana App ID, an
+  SDK-generated installation identifier and a bucket number derived from it, the SDK and app
+  versions, and the platform.
+- **Analytics events**, to `track-events.membrana.media`, describing eligible page views, ad
+  requests and responses, wall displays, and taps on the wall's buttons: the same app, installation,
+  and version fields, plus a session identifier, the ad unit, the experiment and configuration
+  identifiers and country from the settings response, and ad response timing.
+
+The installation identifier is a random UUID the SDK creates and stores in `UserDefaults`. It is
+not the IDFA or IDFV, and the SDK does not request App Tracking Transparency. The SDK also keeps
+capping history in `UserDefaults` and caches your brand logo on disk.
+
+The XCFramework includes a privacy manifest (`PrivacyInfo.xcprivacy`) with these declarations:
+
+| Collected data type | Purpose | Linked to the user | Used for tracking |
+| --- | --- | --- | --- |
+| Device ID | Analytics | No | No |
+| Product interaction | Analytics | No | No |
+| Advertising data | Analytics | No | No |
+
+It also declares required-reason API use for `UserDefaults` (`CA92.1`) and system boot time
+(`35F9.1`). Reflect the collected data in your app's App Store privacy details. Google Mobile Ads
+collects its own data and ships its own privacy manifest; follow Google's guidance for those
+declarations.
 
 ## Integration testing
 
