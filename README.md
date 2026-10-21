@@ -43,7 +43,7 @@ it independently. No Google Mobile Ads type appears in the Membrana public API.
    https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources
    ```
 
-3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.0`, or pin the
+3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.1`, or pin the
    exact version approved for your integration.
 4. Add the **MembranaAdWallSDK** library product to your application target.
 
@@ -57,7 +57,7 @@ Xcode resolves
 dependencies: [
     .package(
         url: "https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources.git",
-        from: "1.0.0"
+        from: "1.0.1"
     )
 ],
 targets: [
@@ -199,11 +199,8 @@ final class ArticleViewController: UIViewController, MembranaAdWallDelegate {
     }
 
     func adWallDidUnlockContent(_ adWall: MembranaAdWall) {
-        // Reveal the protected content.
-    }
-
-    func adWallDidRejectContent(_ adWall: MembranaAdWall) {
-        // The user left the rewarded flow without earning access.
+        // Reveal the protected content. This also arrives when the user closes the rewarded ad
+        // without the reward, or when the ad cannot be shown.
     }
 }
 ```
@@ -329,13 +326,34 @@ outcome.
 | Callback | Meaning |
 | --- | --- |
 | `adWallDidPresent(_:)` | The wall was installed; content is still protected. |
-| `adWallDidUnlockContent(_:)` | Access to the protected view was granted. Terminal. |
-| `adWallDidRejectContent(_:)` | The user left a rewarded flow without earning access. Terminal; the wall stays with disabled controls until the screen closes or `gate` is called again for the same view. |
+| `adWallDidUnlockContent(_:)` | Access to the protected view was granted: the rewarded ad closed, with or without the reward, the rewarded ad could not be shown, or the close path completed. Terminal. See [After a skipped ad](#after-a-skipped-ad) and [After an ad error](#after-an-ad-error). |
 | `adWall(_:contentUnavailableWithReason:)` | No wall can be offered, or an active wall is being removed because advertising was paused. See [Unavailable reasons](#unavailable-reasons). Terminal. |
-| `adWall(_:didFailWithError:)` | A technical failure not represented by an unavailable reason. Terminal. |
+| `adWall(_:didFailWithError:)` | A technical failure not represented by an unavailable reason. Terminal. An ad that cannot be shown unlocks instead, so no presentation path reports this today. |
 
 The SDK does not remember unlocks. Your app decides whether access granted by
 `adWallDidUnlockContent(_:)` survives navigation, screen recreation, or an app restart.
+
+### After a skipped ad
+
+> **Behavior change in 1.0.1, source-breaking.** In 1.0.0 the SDK reported
+> `adWallDidRejectContent(_:)` when the user closed the rewarded ad without the reward, and kept the
+> wall with its button and cross disabled. That callback has been removed from
+> `MembranaAdWallDelegate` (and `MBRAdWallDelegate`). Code that refers to it through the protocol,
+> such as `#selector(MembranaAdWallDelegate.adWallDidRejectContent(_:))`, no longer compiles. An
+> implementation in your delegate still compiles but is never called; delete it when you update.
+
+Closing the rewarded ad without the reward now unlocks the content exactly as a reward does: the
+SDK removes the wall and calls `adWallDidUnlockContent(_:)` once. The skipped impression still counts
+against the rewarded cap, and no interstitial is shown.
+
+### After an ad error
+
+An advertising error never keeps the reader from the content. If the rewarded ad is no longer
+available when the user taps the button, or Google Mobile Ads fails to show it, the SDK removes the
+wall and calls `adWallDidUnlockContent(_:)` once, exactly as for a skipped ad. No error or fallback
+screen replaces your content. An impression Google Mobile Ads confirmed before the error still counts
+against the rewarded cap. Earlier releases kept the wall and reported `adWall(_:didFailWithError:)`
+or `.rewardedAdNotReady` instead.
 
 ### Unavailable reasons
 
