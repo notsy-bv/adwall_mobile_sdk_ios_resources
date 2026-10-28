@@ -43,7 +43,7 @@ it independently. No Google Mobile Ads type appears in the Membrana public API.
    https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources
    ```
 
-3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.1`, or pin the
+3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.2`, or pin the
    exact version approved for your integration.
 4. Add the **MembranaAdWallSDK** library product to your application target.
 
@@ -57,7 +57,7 @@ Xcode resolves
 dependencies: [
     .package(
         url: "https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources.git",
-        from: "1.0.1"
+        from: "1.0.2"
     )
 ],
 targets: [
@@ -232,6 +232,50 @@ MBRAdWall *adWall = [[MBRAdWall alloc] initWithAppId:@"YOUR_MEMBRANA_APP_ID"];
 
 [adWall gateView:self.protectedContentView in:self delegate:self];
 ```
+
+## Web content (WKWebView)
+
+After a full-screen ad, a store visit, or backgrounding, iOS can terminate a WKWebView content
+process under memory pressure. The web view can keep its height and display white. This is not
+specific to AdWall and does not establish a particular incident's root cause.
+
+Without a termination handler, HTML loaded with `loadHTMLString` can remain white: WebKit has no
+original HTML history item to reload, even if `baseURL` and `webView.url` are non-nil. URL-loaded
+pages may self-reload after a blank pause, using their current URL, which an infinite feed or the
+History API may have rewritten. Never leave an implemented termination callback empty: WebKit
+then leaves recovery to the app.
+
+Keep each article's original HTML/base URL or original URL and retry budget **per web view**,
+including every item in an outer feed. Implement `webViewWebContentProcessDidTerminate(_:)`:
+
+```swift
+// HTML mode: retain articleHTML and articleBaseURL for this individual web view.
+func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    guard beginBoundedRecoveryOrShowReload() else { return }
+    webView.loadHTMLString(articleHTML, baseURL: articleBaseURL)
+    // Configured WKUserScripts apply again automatically.
+}
+```
+
+For URL mode, the handler loads the retained original article URL:
+
+```swift
+func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+    guard beginBoundedRecoveryOrShowReload() else { return }
+    webView.load(URLRequest(url: articleURL)) // Not reload() or the mutable webView.url.
+}
+```
+
+Here the app-owned helper bounds attempts (the demos allow two per minute) and shows a visible
+**Reload article** control; use the same fallback for navigation failures. In `didFinish`,
+re-measure `document.body.scrollHeight` into the content/container height, following later changes
+and bounding viewport-relative (`vh`) feedback. Defer DOM reads and layout while the view is detached.
+
+A reward's `adWallDidUnlockContent` can arrive before ad dismissal while the protected screen is out
+of the window. Preserve access then; do web work after visibility returns. Gate the first protected
+article container once and preserve unlock through recovery. Objective-C uses
+`webViewWebContentProcessDidTerminate:`, `loadHTMLString:baseURL:`, or `loadRequest:`. Android's
+counterpart is `WebViewClient.onRenderProcessGone`, which requires replacing the dead WebView.
 
 ## Appearance
 
