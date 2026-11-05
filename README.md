@@ -43,7 +43,7 @@ it independently. No Google Mobile Ads type appears in the Membrana public API.
    https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources
    ```
 
-3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.2`, or pin the
+3. Set **Dependency Rule** to **Up to Next Major Version** starting at `1.0.3`, or pin the
    exact version approved for your integration.
 4. Add the **MembranaAdWallSDK** library product to your application target.
 
@@ -57,7 +57,7 @@ Xcode resolves
 dependencies: [
     .package(
         url: "https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources.git",
-        from: "1.0.2"
+        from: "1.0.3"
     )
 ],
 targets: [

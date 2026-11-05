@@ -14,8 +14,8 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "MembranaAdWallSDK",
-            url: "https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources/releases/download/1.0.2/MembranaAdWallSDK-1.0.2.xcframework.zip",
-            checksum: "a96663c4a476378e8f1beb2ac0578160433f49cec7051287a26e0d9333ff133f"
+            url: "https://github.com/notsy-bv/adwall_mobile_sdk_ios_resources/releases/download/1.0.3/MembranaAdWallSDK-1.0.3.xcframework.zip",
+            checksum: "170cff4b38d85f424d75760e7ec47a3705644dee30b2383fb7ac8e05a7d315b0"
         ),
         .target(
             name: "MembranaAdWallSDKDependencies",
